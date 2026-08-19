@@ -1,0 +1,20 @@
+diff --git a/unitree_guide/CMakeLists.txt b/unitree_guide/CMakeLists.txt
+index 4779d83..bb06d1c 100755
+--- a/unitree_guide/CMakeLists.txt
++++ b/unitree_guide/CMakeLists.txt
+@@ -37,12 +37,9 @@ endif()
+ set(CMAKE_CXX_STANDARD 11)
+ find_package(Boost)
+
+-if(CATKIN_MAKE)
+-    add_definitions(-DCOMPILE_WITH_ROS)
+-    if(MOVE_BASE)
+-        add_definitions(-DCOMPILE_WITH_MOVE_BASE)
+-    endif()
+-endif()
++add_definitions(-DCOMPILE_WITH_ROS)
++add_definitions(-DCOMPILE_WITH_MOVE_BASE)
++
+
+ if(DEBUG)
+     add_definitions(-DCOMPILE_DEBUG)

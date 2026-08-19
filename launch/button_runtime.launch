@@ -1,18 +1,39 @@
 <launch>
 
-    <!-- Go1 front depth -->
+    <!--
+        FINAL RUNTIME LAUNCH
+
+        This launch file DOES NOT start fake vision.
+
+        A real ROS1 vision node must publish:
+        /vision/target_valid
+        /vision/target_type
+        /vision/target_center_x
+        /vision/target_confidence
+    -->
+
+
+    <!-- Go1 front depth processing -->
     <node
         pkg="go1_local_approach"
         type="depth_distance_node"
         name="depth_distance_node"
-        output="screen"/>
+        output="screen"
+    />
+
 
     <!-- Local button approach controller -->
     <node
         pkg="go1_local_approach"
         type="button_approach_controller"
         name="button_approach_controller"
-        output="screen"/>
+        output="screen">
+
+        <rosparam
+            command="load"
+            file="$(find go1_local_approach)/config/button_controller.yaml"
+        />
+
+    </node>
 
 </launch>
-

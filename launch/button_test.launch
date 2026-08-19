@@ -1,39 +1,42 @@
 <launch>
 
-    <!-- Camera TF -->
-    <include file="$(find go1_local_approach)/launch/camera_tf.launch"/>
+    <!--
+        DEVELOPMENT / SELF-TEST
+
+        Uses fake_button_vision instead of real YOLO.
+    -->
 
 
-    <!-- Fake button vision (replace by YOLO later) -->
+    <!-- Fake external vision -->
     <node
         pkg="go1_local_approach"
         type="fake_button_vision"
         name="fake_button_vision"
-        output="screen"/>
+        output="screen"
+    />
 
 
-    <!-- Depth distance -->
+    <!-- Go1 front depth processing -->
     <node
         pkg="go1_local_approach"
         type="depth_distance_node"
         name="depth_distance_node"
-        output="screen"/>
+        output="screen"
+    />
 
 
-    <!-- Task manager -->
-    <node
-        pkg="go1_local_approach"
-        type="task_manager"
-        name="task_manager"
-        output="screen"/>
-
-
-    <!-- Button approach controller -->
+    <!-- Local controller -->
     <node
         pkg="go1_local_approach"
         type="button_approach_controller"
         name="button_approach_controller"
-        output="screen"/>
+        output="screen">
 
+        <rosparam
+            command="load"
+            file="$(find go1_local_approach)/config/button_controller.yaml"
+        />
+
+    </node>
 
 </launch>

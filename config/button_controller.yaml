@@ -1,0 +1,53 @@
+# ==========================================
+# Button Approach Controller Parameters
+# ==========================================
+
+# ---------- Vision ----------
+image_width: 640.0
+
+# Currently retained for future tuning.
+center_threshold_px: 40.0
+
+# If horizontal error exceeds this value,
+# stop forward motion and rotate in place.
+realign_threshold_px: 80.0
+
+min_confidence: 0.60
+
+# Maximum allowed age of vision messages.
+vision_timeout: 0.5
+
+
+# ---------- Depth ----------
+depth_timeout: 0.5
+
+# Approximate useful range of Go1 front depth camera.
+max_valid_depth: 1.50
+
+# Demo interaction distance.
+# Recalibrate after manipulator integration.
+stop_distance: 0.50
+
+
+# ---------- SEARCH ----------
+# Must be high enough for the Unitree gait controller
+# to enter stepping rotation.
+search_angular_speed: 0.25
+
+
+# ---------- Linear motion ----------
+far_speed: 0.08
+medium_speed: 0.08
+near_speed: 0.04
+
+
+# ---------- Angular control ----------
+kp_angular_align: 0.002
+kp_angular_move: 0.001
+
+max_align_angular: 0.35
+max_move_angular: 0.12
+
+# Image x increases to the right.
+# ROS angular.z > 0 means left / CCW.
+yaw_sign: -1.0
