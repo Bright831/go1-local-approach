@@ -13,10 +13,12 @@
 enum ButtonControllerState
 {
     WAIT_TARGET,
+    SEARCH,
     ALIGN,
     FAR_APPROACH,
     DEPTH_APPROACH,
     READY,
+    VISION_LOST,
     DEPTH_LOST
 };
 
@@ -35,6 +37,18 @@ public:
 
         vision_received_ = false;
 
+        /*
+         * 从程序启动到现在，
+         * 是否至少成功识别过一次有效按钮。
+         *
+         * false:
+         *   允许 SEARCH
+         *
+         * true:
+         *   后续视觉丢失只 STOP，不自动搜索
+         */
+        has_seen_valid_target_ = false;
+
         depth_received_ = false;
         depth_ever_acquired_ = false;
 
@@ -44,7 +58,9 @@ public:
 
 
         /*
-         * ===== Vision parameters =====
+         * ========================================
+         * Vision parameters
+         * ========================================
          */
 
         pnh_.param<double>(
@@ -83,7 +99,9 @@ public:
 
 
         /*
-         * ===== Depth parameters =====
+         * ========================================
+         * Depth parameters
+         * ========================================
          */
 
         pnh_.param<double>(
@@ -92,10 +110,6 @@ public:
             0.5
         );
 
-        /*
-         * 当前仿真中实际测试出来的
-         * 深度有效范围约 1.5 m。
-         */
         pnh_.param<double>(
             "max_valid_depth",
             max_valid_depth_,
@@ -103,9 +117,10 @@ public:
         );
 
         /*
-         * 目前只是 demo 停止距离。
+         * 当前 Demo 的预设交互停止距离。
          *
-         * 固定杆确定后必须重新修改。
+         * 后续机械臂接入后再根据机械臂
+         * workspace 重新标定。
          */
         pnh_.param<double>(
             "stop_distance",
@@ -115,8 +130,25 @@ public:
 
 
         /*
-         * ===== Motion parameters =====
+         * ========================================
+         * Motion parameters
+         * ========================================
          */
+
+        /*
+         * SEARCH 原地旋转速度。
+         *
+         * ROS angular.z:
+         *   正值 = 左转 / CCW
+         *
+         * 默认 0.15 rad/s，
+         * 约 8.6 deg/s。
+         */
+        pnh_.param<double>(
+            "search_angular_speed",
+            search_angular_speed_,
+            0.25
+        );
 
         pnh_.param<double>(
             "far_speed",
@@ -162,9 +194,11 @@ public:
 
         /*
          * RGB图像：
-         * x增大 = 目标在右边
          *
-         * ROS angular.z:
+         * x增大 = 目标在图像右边
+         *
+         * ROS angular.z：
+         *
          * 正 = 左转
          * 负 = 右转
          */
@@ -176,7 +210,9 @@ public:
 
 
         /*
-         * ===== Subscribers =====
+         * ========================================
+         * Subscribers
+         * ========================================
          */
 
         valid_sub_ =
@@ -221,7 +257,9 @@ public:
 
 
         /*
-         * ===== Publisher =====
+         * ========================================
+         * Publisher
+         * ========================================
          */
 
         cmd_pub_ =
@@ -231,8 +269,19 @@ public:
             );
 
 
-        ROS_INFO("Button approach controller FULL DEMO started");
-        ROS_INFO("Stop distance = %.2f m", stop_distance_);
+        ROS_INFO(
+            "Button approach controller with SEARCH started"
+        );
+
+        ROS_INFO(
+            "Search angular speed = %.2f rad/s",
+            search_angular_speed_
+        );
+
+        ROS_INFO(
+            "Stop distance = %.2f m",
+            stop_distance_
+        );
     }
 
 
@@ -258,6 +307,7 @@ private:
     ros::NodeHandle nh_;
     ros::NodeHandle pnh_;
 
+
     ros::Subscriber valid_sub_;
     ros::Subscriber type_sub_;
     ros::Subscriber center_sub_;
@@ -267,6 +317,12 @@ private:
     ros::Publisher cmd_pub_;
 
 
+    /*
+     * ========================================
+     * Vision data
+     * ========================================
+     */
+
     bool target_valid_;
     std::string target_type_;
     double target_center_x_;
@@ -274,11 +330,28 @@ private:
 
     bool vision_received_;
 
+    /*
+     * 是否曾经识别成功过一次按钮。
+     *
+     * 用于区分：
+     *
+     * 初始没找到目标 -> SEARCH
+     *
+     * 已经找到过目标后丢失 -> STOP
+     */
+    bool has_seen_valid_target_;
+
     ros::Time last_valid_time_;
     ros::Time last_type_time_;
     ros::Time last_center_time_;
     ros::Time last_confidence_time_;
 
+
+    /*
+     * ========================================
+     * Depth data
+     * ========================================
+     */
 
     double front_distance_;
 
@@ -291,6 +364,12 @@ private:
     ButtonControllerState state_;
 
 
+    /*
+     * ========================================
+     * Parameters
+     * ========================================
+     */
+
     double image_width_;
     double center_threshold_px_;
     double realign_threshold_px_;
@@ -301,6 +380,8 @@ private:
     double depth_timeout_;
     double max_valid_depth_;
     double stop_distance_;
+
+    double search_angular_speed_;
 
     double far_speed_;
     double medium_speed_;
@@ -314,6 +395,12 @@ private:
 
     double yaw_sign_;
 
+
+    /*
+     * ========================================
+     * Callbacks
+     * ========================================
+     */
 
     void validCallback(
         const std_msgs::Bool::ConstPtr& msg
@@ -362,9 +449,10 @@ private:
     )
     {
         /*
-         * /front_distance 已经是标量距离。
+         * /front_distance 是深度相机中央 ROI
+         * 得到的标量距离。
          *
-         * 这里不和 base / odom 坐标做任何直接运算。
+         * 不和 base / odom 坐标做位置运算。
          */
 
         if(
@@ -385,6 +473,12 @@ private:
         }
     }
 
+
+    /*
+     * ========================================
+     * Helper functions
+     * ========================================
+     */
 
     double limit(
         double value,
@@ -407,33 +501,38 @@ private:
             return false;
 
 
-        ros::Time now = ros::Time::now();
+        ros::Time now =
+            ros::Time::now();
 
 
         if(
             (now - last_valid_time_).toSec()
-            > vision_timeout_
+            >
+            vision_timeout_
         )
             return false;
 
 
         if(
             (now - last_type_time_).toSec()
-            > vision_timeout_
+            >
+            vision_timeout_
         )
             return false;
 
 
         if(
             (now - last_center_time_).toSec()
-            > vision_timeout_
+            >
+            vision_timeout_
         )
             return false;
 
 
         if(
             (now - last_confidence_time_).toSec()
-            > vision_timeout_
+            >
+            vision_timeout_
         )
             return false;
 
@@ -452,6 +551,17 @@ private:
             (ros::Time::now() - last_depth_time_).toSec()
             <=
             depth_timeout_;
+    }
+
+
+    bool validButtonTarget()
+    {
+        return
+            target_valid_
+            &&
+            target_type_ == "elevator_call_button"
+            &&
+            target_confidence_ >= min_confidence_;
     }
 
 
@@ -484,45 +594,57 @@ private:
     }
 
 
+    /*
+     * ========================================
+     * Main controller
+     * ========================================
+     */
+
     void control()
     {
         /*
          * ====================================
-         * 1. Vision safety
+         * 1. Vision stream safety
          * ====================================
+         *
+         * 注意：
+         *
+         * "视觉节点没有工作"
+         *
+         * 和
+         *
+         * "视觉节点工作正常，但是没有看到按钮"
+         *
+         * 是两种完全不同的状态。
+         *
+         * 如果视觉数据流本身 stale，
+         * 不允许机器人盲目旋转。
          */
 
         if(!visionFresh())
         {
-            state_ = WAIT_TARGET;
+            if(!has_seen_valid_target_)
+            {
+                state_ = WAIT_TARGET;
 
-            stopRobot();
+                stopRobot();
 
-            ROS_WARN_THROTTLE(
-                1.0,
-                "WAIT_TARGET: vision stale"
-            );
+                ROS_WARN_THROTTLE(
+                    1.0,
+                    "WAIT_TARGET: vision stream missing/stale -> STOP"
+                );
+            }
+            else
+            {
+                state_ = VISION_LOST;
 
-            return;
-        }
+                stopRobot();
 
-
-        if(
-            !target_valid_
-            ||
-            target_type_ != "elevator_call_button"
-            ||
-            target_confidence_ < min_confidence_
-        )
-        {
-            state_ = WAIT_TARGET;
-
-            stopRobot();
-
-            ROS_INFO_THROTTLE(
-                1.0,
-                "WAIT_TARGET: invalid visual target"
-            );
+                ROS_WARN_THROTTLE(
+                    1.0,
+                    "VISION_LOST: vision stream stale after target acquisition -> STOP"
+                );
+            }
 
             return;
         }
@@ -530,8 +652,111 @@ private:
 
         /*
          * ====================================
-         * 2. Pixel error
+         * 2. Vision alive but button not found
          * ====================================
+         */
+
+        if(!validButtonTarget())
+        {
+            /*
+             * 启动以后从未成功识别过按钮：
+             *
+             * 允许低速原地 SEARCH。
+             */
+            if(!has_seen_valid_target_)
+            {
+                state_ = SEARCH;
+
+
+                publishMotion(
+                    0.0,
+                    search_angular_speed_
+                );
+
+
+                ROS_INFO_THROTTLE(
+                    0.5,
+                    "SEARCH | no valid button yet | wz=%.3f",
+                    search_angular_speed_
+                );
+            }
+
+            /*
+             * 已经进入过按钮跟踪以后：
+             *
+             * 视觉突然失效时保持之前的
+             * 安全逻辑：
+             *
+             * STOP。
+             *
+             * 不允许重新转圈搜索。
+             */
+            else
+            {
+                state_ = VISION_LOST;
+
+
+                stopRobot();
+
+
+                ROS_WARN_THROTTLE(
+                    0.5,
+                    "VISION_LOST: target invalid after acquisition -> STOP"
+                );
+            }
+
+
+            return;
+        }
+
+
+        /*
+         * ====================================
+         * 3. 第一次真正获取按钮
+         * ====================================
+         */
+
+        if(!has_seen_valid_target_)
+        {
+            has_seen_valid_target_ = true;
+
+
+            /*
+             * 非常重要：
+             *
+             * SEARCH过程中机器人可能旋转，
+             * 深度相机可能看到其他墙面。
+             *
+             * 这些距离不能作为按钮所在
+             * 电梯面板的距离。
+             *
+             * 因此第一次获得有效按钮时，
+             * 清除 SEARCH期间积累的depth状态。
+             */
+
+            depth_received_ = false;
+            depth_ever_acquired_ = false;
+
+
+            ROS_INFO(
+                "TARGET ACQUIRED: elevator_call_button"
+            );
+
+            ROS_INFO(
+                "Depth history from SEARCH cleared"
+            );
+        }
+
+
+        /*
+         * ====================================
+         * 4. Pixel error
+         * ====================================
+         *
+         * 这里只处理图像像素坐标。
+         *
+         * 不与 base / odom / camera
+         * 三维坐标直接混合计算。
          */
 
         const double image_center =
@@ -546,8 +771,10 @@ private:
 
         /*
          * ====================================
-         * 3. 偏差过大 → ALIGN
+         * 5. 偏差过大 -> ALIGN
          * ====================================
+         *
+         * 以下开始保持原有控制逻辑。
          */
 
         if(
@@ -591,11 +818,9 @@ private:
 
         /*
          * ====================================
-         * 4. 深度还从未出现
+         * 6. Depth从未出现
          *
-         * 说明大概率仍然 >1.5m
-         *
-         * → RGB引导慢速靠近
+         * -> FAR_APPROACH
          * ====================================
          */
 
@@ -637,17 +862,16 @@ private:
 
         /*
          * ====================================
-         * 5. 曾经得到过深度，但现在深度丢失
+         * 7. Depth曾经获得，但现在丢失
          *
-         * 不允许重新 FAR_APPROACH。
-         *
-         * 直接停车。
+         * -> DEPTH_LOST + STOP
          * ====================================
          */
 
         if(!depthFresh())
         {
             state_ = DEPTH_LOST;
+
 
             stopRobot();
 
@@ -664,7 +888,9 @@ private:
 
         /*
          * ====================================
-         * 6. 到达停止距离
+         * 8. 到达停止距离
+         *
+         * -> READY
          * ====================================
          */
 
@@ -675,6 +901,7 @@ private:
         )
         {
             state_ = READY;
+
 
             stopRobot();
 
@@ -692,7 +919,7 @@ private:
 
         /*
          * ====================================
-         * 7. DEPTH_APPROACH
+         * 9. DEPTH_APPROACH
          * ====================================
          */
 

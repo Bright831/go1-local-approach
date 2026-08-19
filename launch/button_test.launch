@@ -1,0 +1,39 @@
+<launch>
+
+    <!-- Camera TF -->
+    <include file="$(find go1_local_approach)/launch/camera_tf.launch"/>
+
+
+    <!-- Fake button vision (replace by YOLO later) -->
+    <node
+        pkg="go1_local_approach"
+        type="fake_button_vision"
+        name="fake_button_vision"
+        output="screen"/>
+
+
+    <!-- Depth distance -->
+    <node
+        pkg="go1_local_approach"
+        type="depth_distance_node"
+        name="depth_distance_node"
+        output="screen"/>
+
+
+    <!-- Task manager -->
+    <node
+        pkg="go1_local_approach"
+        type="task_manager"
+        name="task_manager"
+        output="screen"/>
+
+
+    <!-- Button approach controller -->
+    <node
+        pkg="go1_local_approach"
+        type="button_approach_controller"
+        name="button_approach_controller"
+        output="screen"/>
+
+
+</launch>

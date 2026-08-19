@@ -1,0 +1,18 @@
+<launch>
+
+    <!-- Go1 front depth -->
+    <node
+        pkg="go1_local_approach"
+        type="depth_distance_node"
+        name="depth_distance_node"
+        output="screen"/>
+
+    <!-- Local button approach controller -->
+    <node
+        pkg="go1_local_approach"
+        type="button_approach_controller"
+        name="button_approach_controller"
+        output="screen"/>
+
+</launch>
+
