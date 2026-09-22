@@ -1,0 +1,120 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+
+  <model name="sim_elevator">
+
+    <static>true</static>
+
+
+    <!-- ========================= -->
+    <!-- Elevator door             -->
+    <!-- ========================= -->
+
+    <link name="door">
+
+      <pose>0 0 1.0 0 0 0</pose>
+
+      <collision name="door_collision">
+        <geometry>
+          <box>
+            <size>0.08 1.40 2.00</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <visual name="door_visual">
+
+        <geometry>
+          <box>
+            <size>0.08 1.40 2.00</size>
+          </box>
+        </geometry>
+
+        <material>
+          <ambient>0.55 0.55 0.55 1</ambient>
+          <diffuse>0.65 0.65 0.65 1</diffuse>
+        </material>
+
+      </visual>
+
+    </link>
+
+
+    <!-- ========================= -->
+    <!-- Elevator call panel       -->
+    <!-- ========================= -->
+
+    <link name="call_panel">
+
+      <pose>-0.055 0.82 1.0 0 0 0</pose>
+
+      <collision name="panel_collision">
+
+        <geometry>
+          <box>
+            <size>0.04 0.22 0.50</size>
+          </box>
+        </geometry>
+
+      </collision>
+
+      <visual name="panel_visual">
+
+        <geometry>
+          <box>
+            <size>0.04 0.22 0.50</size>
+          </box>
+        </geometry>
+
+        <material>
+          <ambient>0.12 0.12 0.12 1</ambient>
+          <diffuse>0.18 0.18 0.18 1</diffuse>
+        </material>
+
+      </visual>
+
+    </link>
+
+
+    <!-- ========================= -->
+    <!-- Elevator call button      -->
+    <!-- ========================= -->
+
+    <link name="call_button">
+
+      <!-- Approximately 0.93 m high -->
+      <pose>-0.085 0.82 0.93 0 0 0</pose>
+
+      <collision name="button_collision">
+
+        <geometry>
+          <box>
+            <size>0.04 0.12 0.12</size>
+          </box>
+        </geometry>
+
+      </collision>
+
+      <visual name="button_visual">
+
+        <geometry>
+          <box>
+            <size>0.04 0.12 0.12</size>
+          </box>
+        </geometry>
+
+        <!-- Magenta for synthetic ground-truth generation -->
+        <material>
+          <ambient>1.0 0.0 1.0 1</ambient>
+          <diffuse>1.0 0.0 1.0 1</diffuse>
+          <emissive>0.3 0.0 0.3 1</emissive>
+        </material>
+
+      </visual>
+
+    </link>
+
+
+  </model>
+
+</sdf>

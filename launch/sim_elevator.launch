@@ -1,0 +1,24 @@
+<launch>
+
+    <arg name="x" default="3.0"/>
+    <arg name="y" default="0.0"/>
+    <arg name="z" default="0.0"/>
+    <arg name="yaw" default="0.0"/>
+
+    <node
+        pkg="gazebo_ros"
+        type="spawn_model"
+        name="spawn_sim_elevator"
+        output="screen"
+        args="
+            -sdf
+            -file $(find go1_local_approach)/models/sim_elevator/model.sdf
+            -model sim_elevator
+            -x $(arg x)
+            -y $(arg y)
+            -z $(arg z)
+            -Y $(arg yaw)
+        "
+    />
+
+</launch>

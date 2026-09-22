@@ -13,49 +13,75 @@
 class DepthDistanceNode
 {
 public:
-
     DepthDistanceNode()
-        : pnh_("~")
+        : nh_(),
+          pnh_("~")
     {
-        /*
-         * 可以以后通过 launch / rosparam 修改
-         */
+        // ============================================================
+        // Parameters
+        // ============================================================
+
         pnh_.param<std::string>(
             "depth_topic",
             depth_topic_,
             "/camera_face/depth/image_raw"
         );
 
-        pnh_.param<int>(
-            "roi_half_width",
-            roi_half_width_,
-            30
-        );
-
-        pnh_.param<int>(
-            "roi_half_height",
-            roi_half_height_,
-            30
-        );
-
-        pnh_.param<double>(
+        pnh_.param(
             "min_depth",
             min_depth_,
             0.10
         );
 
-        pnh_.param<double>(
+        pnh_.param(
             "max_depth",
             max_depth_,
             1.50
         );
 
-        pnh_.param<int>(
+        pnh_.param(
+            "roi_half_width",
+            roi_half_width_,
+            30
+        );
+
+        pnh_.param(
+            "roi_half_height",
+            roi_half_height_,
+            30
+        );
+
+        pnh_.param(
             "min_valid_pixels",
             min_valid_pixels_,
             30
         );
 
+        pnh_.param(
+            "search_step_px",
+            search_step_px_,
+            20
+        );
+
+        pnh_.param(
+            "max_search_offset_px",
+            max_search_offset_px_,
+            250
+        );
+
+        // ============================================================
+        // Publisher
+        // ============================================================
+
+        distance_pub_ =
+            nh_.advertise<std_msgs::Float32>(
+                "/front_distance",
+                1
+            );
+
+        // ============================================================
+        // Subscriber
+        // ============================================================
 
         depth_sub_ =
             nh_.subscribe(
@@ -65,16 +91,8 @@ public:
                 this
             );
 
-
-        distance_pub_ =
-            nh_.advertise<std_msgs::Float32>(
-                "/front_distance",
-                10
-            );
-
-
         ROS_INFO(
-            "Depth distance node started"
+            "Adaptive depth distance node started"
         );
 
         ROS_INFO(
@@ -83,15 +101,369 @@ public:
         );
 
         ROS_INFO(
-            "ROI: center +/- %d px horizontally, +/- %d px vertically",
+            "Depth range: %.2f m ~ %.2f m",
+            min_depth_,
+            max_depth_
+        );
+
+        ROS_INFO(
+            "ROI: +/- %d px horizontally, +/- %d px vertically",
             roi_half_width_,
             roi_half_height_
         );
 
         ROS_INFO(
-            "Valid depth range: %.2f m ~ %.2f m",
-            min_depth_,
-            max_depth_
+            "Adaptive horizontal search: step=%d px, max_offset=%d px",
+            search_step_px_,
+            max_search_offset_px_
+        );
+
+        ROS_INFO(
+            "Minimum valid pixels: %d",
+            min_valid_pixels_
+        );
+    }
+
+
+private:
+
+    // ================================================================
+    // Calculate median depth inside one ROI
+    // ================================================================
+
+    bool evaluateROI(
+        const sensor_msgs::ImageConstPtr& msg,
+        int center_x,
+        int center_y,
+        float& median_depth,
+        int& valid_count
+    )
+    {
+        const int width =
+            static_cast<int>(msg->width);
+
+        const int height =
+            static_cast<int>(msg->height);
+
+        const int x1 =
+            std::max(
+                0,
+                center_x - roi_half_width_
+            );
+
+        const int x2 =
+            std::min(
+                width,
+                center_x + roi_half_width_
+            );
+
+        const int y1 =
+            std::max(
+                0,
+                center_y - roi_half_height_
+            );
+
+        const int y2 =
+            std::min(
+                height,
+                center_y + roi_half_height_
+            );
+
+        std::vector<float> values;
+
+        values.reserve(
+            (x2 - x1) * (y2 - y1)
+        );
+
+        // 32FC1 = float32, one float per depth pixel.
+        //
+        // msg->step may contain row padding, so use step explicitly.
+
+        for (int y = y1; y < y2; ++y)
+        {
+            const uint8_t* row_ptr =
+                &msg->data[
+                    static_cast<size_t>(y)
+                    * msg->step
+                ];
+
+            for (int x = x1; x < x2; ++x)
+            {
+                float depth = 0.0f;
+
+                std::memcpy(
+                    &depth,
+                    row_ptr
+                        + static_cast<size_t>(x)
+                        * sizeof(float),
+                    sizeof(float)
+                );
+
+                if (!std::isfinite(depth))
+                {
+                    continue;
+                }
+
+                if (depth < min_depth_)
+                {
+                    continue;
+                }
+
+                if (depth > max_depth_)
+                {
+                    continue;
+                }
+
+                values.push_back(
+                    depth
+                );
+            }
+        }
+
+        valid_count =
+            static_cast<int>(
+                values.size()
+            );
+
+        if (
+            valid_count
+            < min_valid_pixels_
+        )
+        {
+            return false;
+        }
+
+        // Median
+        const size_t mid =
+            values.size() / 2;
+
+        std::nth_element(
+            values.begin(),
+            values.begin() + mid,
+            values.end()
+        );
+
+        median_depth =
+            values[mid];
+
+        return true;
+    }
+
+
+    // ================================================================
+    // Depth callback
+    // ================================================================
+
+    void depthCallback(
+        const sensor_msgs::ImageConstPtr& msg
+    )
+    {
+        // ------------------------------------------------------------
+        // Encoding check
+        // ------------------------------------------------------------
+
+        if (
+            msg->encoding != "32FC1"
+            && msg->encoding != "32FC"
+        )
+        {
+            ROS_WARN_THROTTLE(
+                2.0,
+                "Unsupported depth encoding: %s",
+                msg->encoding.c_str()
+            );
+
+            return;
+        }
+
+        if (
+            msg->width == 0
+            || msg->height == 0
+            || msg->data.empty()
+        )
+        {
+            ROS_WARN_THROTTLE(
+                2.0,
+                "Empty depth image"
+            );
+
+            return;
+        }
+
+        const int image_width =
+            static_cast<int>(
+                msg->width
+            );
+
+        const int image_height =
+            static_cast<int>(
+                msg->height
+            );
+
+        const int center_x =
+            image_width / 2;
+
+        const int center_y =
+            image_height / 2;
+
+        // ------------------------------------------------------------
+        // Adaptive search offsets
+        //
+        // Order:
+        //
+        // 0
+        // -20, +20
+        // -40, +40
+        // ...
+        //
+        // We take the first ROI containing enough valid depth pixels.
+        // Therefore the selected ROI is the valid one nearest the
+        // original depth-image centre.
+        // ------------------------------------------------------------
+
+        std::vector<int> offsets;
+
+        offsets.push_back(
+            0
+        );
+
+        for (
+            int offset = search_step_px_;
+            offset <= max_search_offset_px_;
+            offset += search_step_px_
+        )
+        {
+            // Left first because current Gazebo depth data
+            // is observed to be shifted left of image centre.
+            offsets.push_back(
+                -offset
+            );
+
+            offsets.push_back(
+                offset
+            );
+        }
+
+        bool found = false;
+
+        float selected_depth =
+            0.0f;
+
+        int selected_offset =
+            0;
+
+        int selected_valid_count =
+            0;
+
+        // ------------------------------------------------------------
+        // Search
+        // ------------------------------------------------------------
+
+        for (const int offset : offsets)
+        {
+            const int test_center_x =
+                center_x + offset;
+
+            if (
+                test_center_x
+                    - roi_half_width_
+                < 0
+            )
+            {
+                continue;
+            }
+
+            if (
+                test_center_x
+                    + roi_half_width_
+                >= image_width
+            )
+            {
+                continue;
+            }
+
+            float median_depth =
+                0.0f;
+
+            int valid_count =
+                0;
+
+            const bool valid =
+                evaluateROI(
+                    msg,
+                    test_center_x,
+                    center_y,
+                    median_depth,
+                    valid_count
+                );
+
+            if (!valid)
+            {
+                continue;
+            }
+
+            found = true;
+
+            selected_depth =
+                median_depth;
+
+            selected_offset =
+                offset;
+
+            selected_valid_count =
+                valid_count;
+
+            break;
+        }
+
+        // ------------------------------------------------------------
+        // Nothing usable
+        // ------------------------------------------------------------
+
+        if (!found)
+        {
+            ROS_WARN_THROTTLE(
+                1.0,
+                "No valid depth ROI found within +/- %d px",
+                max_search_offset_px_
+            );
+
+            // Important:
+            //
+            // Do NOT publish fake depth.
+            //
+            // The controller will detect timeout and safely enter
+            // DEPTH_LOST if depth had already been acquired.
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // Publish
+        // ------------------------------------------------------------
+
+        std_msgs::Float32 distance_msg;
+
+        distance_msg.data =
+            selected_depth;
+
+        distance_pub_.publish(
+            distance_msg
+        );
+
+        ROS_INFO_THROTTLE(
+            1.0,
+            "Front distance = %.3f m | "
+            "valid pixels = %d | "
+            "ROI offset = %+d px | "
+            "ROI center x = %d | "
+            "depth image center x = %d | "
+            "frame = %s",
+            selected_depth,
+            selected_valid_count,
+            selected_offset,
+            center_x + selected_offset,
+            center_x,
+            msg->header.frame_id.c_str()
         );
     }
 
@@ -104,279 +476,18 @@ private:
     ros::Subscriber depth_sub_;
     ros::Publisher distance_pub_;
 
-
     std::string depth_topic_;
-
-    int roi_half_width_;
-    int roi_half_height_;
 
     double min_depth_;
     double max_depth_;
 
+    int roi_half_width_;
+    int roi_half_height_;
+
     int min_valid_pixels_;
 
-
-    void depthCallback(
-        const sensor_msgs::Image::ConstPtr& msg
-    )
-    {
-        /*
-         * 当前节点只支持已经确认的：
-         *
-         * encoding = 32FC1
-         *
-         * 每个像素占 4 bytes。
-         */
-
-        if(msg->encoding != "32FC1")
-        {
-            ROS_ERROR_THROTTLE(
-                2.0,
-                "Unsupported depth encoding: %s, expected 32FC1",
-                msg->encoding.c_str()
-            );
-
-            return;
-        }
-
-
-        if(msg->width == 0 || msg->height == 0)
-        {
-            ROS_WARN_THROTTLE(
-                2.0,
-                "Depth image is empty"
-            );
-
-            return;
-        }
-
-
-        /*
-         * 目前你的数据：
-         *
-         * frame_id = camera_optical_face
-         *
-         * 这里只计算图像中央区域深度，
-         * 不把这个坐标与 base / odom 直接混合。
-         */
-
-        const int center_u =
-            static_cast<int>(msg->width / 2);
-
-        const int center_v =
-            static_cast<int>(msg->height / 2);
-
-
-        int u_min =
-            center_u - roi_half_width_;
-
-        int u_max =
-            center_u + roi_half_width_;
-
-        int v_min =
-            center_v - roi_half_height_;
-
-        int v_max =
-            center_v + roi_half_height_;
-
-
-        /*
-         * 防止 ROI 超出图像范围
-         */
-
-        u_min =
-            std::max(
-                0,
-                u_min
-            );
-
-        v_min =
-            std::max(
-                0,
-                v_min
-            );
-
-        u_max =
-            std::min(
-                static_cast<int>(msg->width) - 1,
-                u_max
-            );
-
-        v_max =
-            std::min(
-                static_cast<int>(msg->height) - 1,
-                v_max
-            );
-
-
-        std::vector<float> valid_depths;
-
-        valid_depths.reserve(
-            (u_max - u_min + 1) *
-            (v_max - v_min + 1)
-        );
-
-
-        /*
-         * 读取 ROI 内所有深度值
-         */
-
-        for(int v = v_min; v <= v_max; ++v)
-        {
-            for(int u = u_min; u <= u_max; ++u)
-            {
-                /*
-                 * 32FC1:
-                 *
-                 * 每个像素 4 bytes
-                 *
-                 * offset =
-                 * row_start + pixel_offset
-                 */
-
-                const size_t offset =
-                    static_cast<size_t>(v) *
-                    msg->step
-                    +
-                    static_cast<size_t>(u) *
-                    sizeof(float);
-
-
-                if(
-                    offset + sizeof(float)
-                    >
-                    msg->data.size()
-                )
-                {
-                    continue;
-                }
-
-
-                float depth;
-
-
-                /*
-                 * 当前消息：
-                 *
-                 * is_bigendian = 0
-                 *
-                 * WSL / x86 同样是 little endian，
-                 * 所以可以直接 memcpy。
-                 */
-
-                std::memcpy(
-                    &depth,
-                    &msg->data[offset],
-                    sizeof(float)
-                );
-
-
-                /*
-                 * 去掉：
-                 *
-                 * NaN
-                 * Inf
-                 * <=0
-                 * 太近
-                 * 太远
-                 */
-
-                if(!std::isfinite(depth))
-                {
-                    continue;
-                }
-
-
-                if(depth < min_depth_)
-                {
-                    continue;
-                }
-
-
-                if(depth > max_depth_)
-                {
-                    continue;
-                }
-
-
-                valid_depths.push_back(depth);
-            }
-        }
-
-
-        /*
-         * 有效像素太少：
-         *
-         * 不发布旧值，也不编造距离。
-         */
-
-        if(
-            static_cast<int>(valid_depths.size())
-            <
-            min_valid_pixels_
-        )
-        {
-            ROS_WARN_THROTTLE(
-                1.0,
-                "Not enough valid depth pixels: %zu",
-                valid_depths.size()
-            );
-
-            return;
-        }
-
-
-        /*
-         * 求中位数
-         *
-         * 相比平均值：
-         * 对异常深度值更稳定。
-         */
-
-        const size_t middle =
-            valid_depths.size() / 2;
-
-
-        std::nth_element(
-            valid_depths.begin(),
-            valid_depths.begin() + middle,
-            valid_depths.end()
-        );
-
-
-        float median_depth =
-            valid_depths[middle];
-
-
-        /*
-         * 偶数个数据时，
-         * 为了控制程序简单，
-         * 直接使用中间的一个值即可。
-         *
-         * 对几十/几千个深度像素来说
-         * 区别可以忽略。
-         */
-
-
-        std_msgs::Float32 distance_msg;
-
-        distance_msg.data =
-            median_depth;
-
-
-        distance_pub_.publish(
-            distance_msg
-        );
-
-
-        ROS_INFO_THROTTLE(
-            0.5,
-            "Front distance = %.3f m | valid pixels = %zu | frame = %s",
-            median_depth,
-            valid_depths.size(),
-            msg->header.frame_id.c_str()
-        );
-    }
+    int search_step_px_;
+    int max_search_offset_px_;
 };
 
 
@@ -391,12 +502,9 @@ int main(
         "depth_distance_node"
     );
 
-
     DepthDistanceNode node;
 
-
     ros::spin();
-
 
     return 0;
 }

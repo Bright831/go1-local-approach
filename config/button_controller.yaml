@@ -50,4 +50,4 @@ max_move_angular: 0.12
 
 # Image x increases to the right.
 # ROS angular.z > 0 means left / CCW.
-yaw_sign: -1.0
+yaw_sign: 1.0
