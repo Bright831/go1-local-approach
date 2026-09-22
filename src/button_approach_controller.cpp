@@ -45,12 +45,32 @@ public:
          *   允许 SEARCH
          *
          * true:
-         *   后续视觉丢失只 STOP，不自动搜索
+         *   后续视觉丢失只 STOP，不自动 SEARCH
          */
         has_seen_valid_target_ = false;
 
+
+        /*
+         * Depth state
+         */
         depth_received_ = false;
         depth_ever_acquired_ = false;
+
+        /*
+         * 是否已经完成初始视觉对准，
+         * 并正式开始过 forward approach。
+         *
+         * false:
+         *   WAIT_TARGET / SEARCH / 初始 ALIGN
+         *   此时 depth 不能建立正式 tracking。
+         *
+         * true:
+         *   已经进入过 FAR_APPROACH。
+         *   此后即使视觉暂时进入 VISION_LOST，
+         *   合法 depth 仍允许持续更新。
+         */
+        approach_started_ = false;
+
 
         front_distance_ = 0.0;
 
@@ -116,12 +136,6 @@ public:
             1.50
         );
 
-        /*
-         * 当前 Demo 的预设交互停止距离。
-         *
-         * 后续机械臂接入后再根据机械臂
-         * workspace 重新标定。
-         */
         pnh_.param<double>(
             "stop_distance",
             stop_distance_,
@@ -135,12 +149,6 @@ public:
          * ========================================
          */
 
-        /*
-         * SEARCH 原地旋转速度。
-         *
-         * 当前仿真已经验证：
-         * 0.25 rad/s 可以正常触发 Go1 stepping。
-         */
         pnh_.param<double>(
             "search_angular_speed",
             search_angular_speed_,
@@ -190,18 +198,11 @@ public:
         );
 
         /*
-         * RGB图像：
+         * 实际运行由 YAML 提供。
          *
-         * x增大 = 目标在图像右边
-         *
-         * yaw_sign 的实际值由 YAML 配置加载。
-         *
-         * 你目前成功 Demo 中已经实际标定为：
+         * 当前已经实测成功：
          *
          * yaw_sign = +1.0
-         *
-         * 这里保留代码原来的默认值，
-         * 实际运行仍以 YAML 参数为准。
          */
         pnh_.param<double>(
             "yaw_sign",
@@ -269,14 +270,6 @@ public:
                 10
             );
 
-        /*
-         * Controller state topic.
-         *
-         * latched = true
-         *
-         * 因此实验 logger 即使晚于 controller 启动，
-         * 也可以立即收到最近一次状态。
-         */
         state_pub_ =
             nh_.advertise<std_msgs::String>(
                 "/button_approach/state",
@@ -285,9 +278,6 @@ public:
             );
 
 
-        /*
-         * 发布初始状态 WAIT_TARGET。
-         */
         publishState();
 
 
@@ -370,15 +360,6 @@ private:
 
     bool vision_received_;
 
-    /*
-     * 是否曾经识别成功过一次按钮。
-     *
-     * 用于区分：
-     *
-     * 初始没找到目标 -> SEARCH
-     *
-     * 已经找到过目标后丢失 -> STOP
-     */
     bool has_seen_valid_target_;
 
     ros::Time last_valid_time_;
@@ -397,6 +378,14 @@ private:
 
     bool depth_received_;
     bool depth_ever_acquired_;
+
+    /*
+     * 历史阶段 flag。
+     *
+     * 一旦真正进入过 FAR_APPROACH，
+     * 后续不因为瞬时 state 改变而清除。
+     */
+    bool approach_started_;
 
     ros::Time last_depth_time_;
 
@@ -444,7 +433,7 @@ private:
 
     /*
      * ========================================
-     * Callbacks
+     * Vision callbacks
      * ========================================
      */
 
@@ -456,7 +445,8 @@ private:
 
         vision_received_ = true;
 
-        last_valid_time_ = ros::Time::now();
+        last_valid_time_ =
+            ros::Time::now();
     }
 
 
@@ -466,7 +456,8 @@ private:
     {
         target_type_ = msg->data;
 
-        last_type_time_ = ros::Time::now();
+        last_type_time_ =
+            ros::Time::now();
     }
 
 
@@ -476,7 +467,8 @@ private:
     {
         target_center_x_ = msg->data;
 
-        last_center_time_ = ros::Time::now();
+        last_center_time_ =
+            ros::Time::now();
     }
 
 
@@ -486,37 +478,93 @@ private:
     {
         target_confidence_ = msg->data;
 
-        last_confidence_time_ = ros::Time::now();
+        last_confidence_time_ =
+            ros::Time::now();
     }
 
+
+    /*
+     * ========================================
+     * Depth callback
+     * ========================================
+     */
 
     void depthCallback(
         const std_msgs::Float32::ConstPtr& msg
     )
     {
         /*
-         * /front_distance 是深度节点得到的
+         * /front_distance 是 depth node 输出的
          * 标量距离。
          *
          * 它不是 base / odom 中的三维位置，
-         * 不与这些 frame 的位置坐标直接混算。
+         * 因此不与这些 frame 的位置坐标直接混算。
+         *
+         *
+         * 初始：
+         *
+         * WAIT_TARGET
+         * SEARCH
+         * ALIGN
+         *
+         * 此时机器人尚未完成视觉对准。
+         * depth camera 可能看到墙面或其他表面，
+         * 所以这些 depth 不能建立正式 tracking。
+         *
+         *
+         * 一旦：
+         *
+         * approach_started_ == true
+         *
+         * 意味着 controller 已经完成初始对准，
+         * 并进入过 FAR_APPROACH。
+         *
+         * 此后即使当前瞬时状态是 VISION_LOST，
+         * 合法 depth 仍继续更新。
          */
 
+
+        /*
+         * 非法 depth 才 return。
+         */
         if(
-            std::isfinite(msg->data)
-            &&
-            msg->data > 0.10
-            &&
-            msg->data <= max_valid_depth_
+            !std::isfinite(msg->data)
+            ||
+            msg->data <= 0.10
+            ||
+            msg->data > max_valid_depth_
         )
         {
-            front_distance_ = msg->data;
+            return;
+        }
 
+
+        /*
+         * 保留最新合法数值。
+         */
+        front_distance_ =
+            msg->data;
+
+
+        /*
+         * 只有正式开始 approach 后，
+         * depth 才参与 controller tracking。
+         *
+         * 注意：
+         *
+         * 这里不再依赖当前 state_。
+         *
+         * 所以即使当前处于 VISION_LOST，
+         * 只要 approach 已经开始，
+         * depth 仍然可以继续更新。
+         */
+        if(approach_started_)
+        {
             depth_received_ = true;
-
             depth_ever_acquired_ = true;
 
-            last_depth_time_ = ros::Time::now();
+            last_depth_time_ =
+                ros::Time::now();
         }
     }
 
@@ -578,15 +626,6 @@ private:
     }
 
 
-    /*
-     * 状态切换统一经过这个函数。
-     *
-     * 只有状态真正发生变化时，
-     * 才发布新的状态消息。
-     *
-     * 这样实验 logger 可以直接根据消息时间
-     * 获取每个 state 的进入时刻。
-     */
     void setState(
         ButtonControllerState new_state
     )
@@ -595,6 +634,7 @@ private:
         {
             return;
         }
+
 
         const std::string old_state =
             stateToString(
@@ -606,9 +646,13 @@ private:
                 new_state
             );
 
-        state_ = new_state;
+
+        state_ =
+            new_state;
+
 
         publishState();
+
 
         ROS_INFO(
             "STATE TRANSITION: %s -> %s",
@@ -642,10 +686,12 @@ private:
     bool visionFresh()
     {
         if(!vision_received_)
+        {
             return false;
+        }
 
 
-        ros::Time now =
+        const ros::Time now =
             ros::Time::now();
 
 
@@ -696,7 +742,9 @@ private:
     bool depthFresh()
     {
         if(!depth_received_)
+        {
             return false;
+        }
 
 
         return
@@ -770,17 +818,6 @@ private:
          * ====================================
          * 1. Vision stream safety
          * ====================================
-         *
-         * "视觉节点没有工作"
-         *
-         * 和
-         *
-         * "视觉节点工作正常，但是没有看到按钮"
-         *
-         * 是两种完全不同的状态。
-         *
-         * 如果视觉数据流本身 stale，
-         * 不允许机器人盲目旋转。
          */
 
         if(!visionFresh())
@@ -792,6 +829,7 @@ private:
                 );
 
                 stopRobot();
+
 
                 ROS_WARN_THROTTLE(
                     1.0,
@@ -806,11 +844,13 @@ private:
 
                 stopRobot();
 
+
                 ROS_WARN_THROTTLE(
                     1.0,
                     "VISION_LOST: vision stream stale after target acquisition -> STOP"
                 );
             }
+
 
             return;
         }
@@ -818,16 +858,15 @@ private:
 
         /*
          * ====================================
-         * 2. Vision alive but button not found
+         * 2. Vision alive but no valid button
          * ====================================
          */
 
         if(!validButtonTarget())
         {
             /*
-             * 启动以后从未成功识别过按钮：
-             *
-             * 允许低速原地 SEARCH。
+             * 启动后从未找到过目标：
+             * 允许 SEARCH。
              */
             if(!has_seen_valid_target_)
             {
@@ -850,14 +889,10 @@ private:
             }
 
             /*
-             * 已经进入过按钮跟踪以后：
-             *
-             * 视觉突然失效时保持之前的
-             * 安全逻辑：
-             *
+             * 已经获取过目标后丢失：
              * STOP。
              *
-             * 不允许重新转圈搜索。
+             * 不重新 SEARCH。
              */
             else
             {
@@ -882,28 +917,30 @@ private:
 
         /*
          * ====================================
-         * 3. 第一次真正获取按钮
+         * 3. First target acquisition
          * ====================================
          */
 
         if(!has_seen_valid_target_)
         {
-            has_seen_valid_target_ = true;
+            has_seen_valid_target_ =
+                true;
 
 
             /*
-             * SEARCH过程中机器人可能旋转，
-             * 深度相机可能看到其他墙面。
+             * SEARCH 阶段 depth 可能属于其他表面。
              *
-             * 这些距离不能作为按钮所在
-             * 电梯面板的距离。
-             *
-             * 因此第一次获得有效按钮时，
-             * 清除 SEARCH期间积累的depth状态。
+             * 第一次真正获取按钮时，
+             * 清空所有 depth tracking 历史。
              */
+            depth_received_ =
+                false;
 
-            depth_received_ = false;
-            depth_ever_acquired_ = false;
+            depth_ever_acquired_ =
+                false;
+
+            approach_started_ =
+                false;
 
 
             ROS_INFO(
@@ -923,8 +960,7 @@ private:
          *
          * 这里只处理图像像素坐标。
          *
-         * 不与 base / odom / camera
-         * 三维坐标直接混合计算。
+         * 不与 base / odom / camera 三维位置混算。
          */
 
         const double image_center =
@@ -941,7 +977,7 @@ private:
 
         /*
          * ====================================
-         * 5. 偏差过大 -> ALIGN
+         * 5. Large pixel error -> ALIGN
          * ====================================
          */
 
@@ -990,7 +1026,7 @@ private:
 
         /*
          * ====================================
-         * 6. Depth从未出现
+         * 6. No usable depth yet
          *
          * -> FAR_APPROACH
          * ====================================
@@ -998,6 +1034,28 @@ private:
 
         if(!depth_ever_acquired_)
         {
+            /*
+             * 到达这里说明：
+             *
+             * vision fresh
+             * target valid
+             * error <= realign_threshold_px
+             *
+             * 因此初始视觉对准已经达到要求。
+             *
+             * 从现在开始，允许 depth 正式参与 tracking。
+             */
+            if(!approach_started_)
+            {
+                approach_started_ =
+                    true;
+
+                ROS_INFO(
+                    "APPROACH STARTED: depth tracking enabled"
+                );
+            }
+
+
             setState(
                 FAR_APPROACH
             );
@@ -1036,7 +1094,8 @@ private:
 
         /*
          * ====================================
-         * 7. Depth曾经获得，但现在丢失
+         * 7. Depth acquired before,
+         *    but now stale
          *
          * -> DEPTH_LOST + STOP
          * ====================================
@@ -1064,7 +1123,7 @@ private:
 
         /*
          * ====================================
-         * 8. 到达停止距离
+         * 8. Stop distance reached
          *
          * -> READY
          * ====================================
