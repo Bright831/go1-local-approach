@@ -138,11 +138,8 @@ public:
         /*
          * SEARCH 原地旋转速度。
          *
-         * ROS angular.z:
-         *   正值 = 左转 / CCW
-         *
-         * 默认 0.15 rad/s，
-         * 约 8.6 deg/s。
+         * 当前仿真已经验证：
+         * 0.25 rad/s 可以正常触发 Go1 stepping。
          */
         pnh_.param<double>(
             "search_angular_speed",
@@ -197,10 +194,14 @@ public:
          *
          * x增大 = 目标在图像右边
          *
-         * ROS angular.z：
+         * yaw_sign 的实际值由 YAML 配置加载。
          *
-         * 正 = 左转
-         * 负 = 右转
+         * 你目前成功 Demo 中已经实际标定为：
+         *
+         * yaw_sign = +1.0
+         *
+         * 这里保留代码原来的默认值，
+         * 实际运行仍以 YAML 参数为准。
          */
         pnh_.param<double>(
             "yaw_sign",
@@ -258,7 +259,7 @@ public:
 
         /*
          * ========================================
-         * Publisher
+         * Publishers
          * ========================================
          */
 
@@ -267,6 +268,27 @@ public:
                 "/cmd_vel",
                 10
             );
+
+        /*
+         * Controller state topic.
+         *
+         * latched = true
+         *
+         * 因此实验 logger 即使晚于 controller 启动，
+         * 也可以立即收到最近一次状态。
+         */
+        state_pub_ =
+            nh_.advertise<std_msgs::String>(
+                "/button_approach/state",
+                1,
+                true
+            );
+
+
+        /*
+         * 发布初始状态 WAIT_TARGET。
+         */
+        publishState();
 
 
         ROS_INFO(
@@ -281,6 +303,10 @@ public:
         ROS_INFO(
             "Stop distance = %.2f m",
             stop_distance_
+        );
+
+        ROS_INFO(
+            "State topic: /button_approach/state"
         );
     }
 
@@ -308,13 +334,27 @@ private:
     ros::NodeHandle pnh_;
 
 
+    /*
+     * ========================================
+     * Subscribers
+     * ========================================
+     */
+
     ros::Subscriber valid_sub_;
     ros::Subscriber type_sub_;
     ros::Subscriber center_sub_;
     ros::Subscriber confidence_sub_;
     ros::Subscriber depth_sub_;
 
+
+    /*
+     * ========================================
+     * Publishers
+     * ========================================
+     */
+
     ros::Publisher cmd_pub_;
+    ros::Publisher state_pub_;
 
 
     /*
@@ -360,6 +400,12 @@ private:
 
     ros::Time last_depth_time_;
 
+
+    /*
+     * ========================================
+     * Controller state
+     * ========================================
+     */
 
     ButtonControllerState state_;
 
@@ -449,10 +495,11 @@ private:
     )
     {
         /*
-         * /front_distance 是深度相机中央 ROI
-         * 得到的标量距离。
+         * /front_distance 是深度节点得到的
+         * 标量距离。
          *
-         * 不和 base / odom 坐标做位置运算。
+         * 它不是 base / odom 中的三维位置，
+         * 不与这些 frame 的位置坐标直接混算。
          */
 
         if(
@@ -476,7 +523,104 @@ private:
 
     /*
      * ========================================
-     * Helper functions
+     * State helper functions
+     * ========================================
+     */
+
+    std::string stateToString(
+        ButtonControllerState state
+    ) const
+    {
+        switch(state)
+        {
+            case WAIT_TARGET:
+                return "WAIT_TARGET";
+
+            case SEARCH:
+                return "SEARCH";
+
+            case ALIGN:
+                return "ALIGN";
+
+            case FAR_APPROACH:
+                return "FAR_APPROACH";
+
+            case DEPTH_APPROACH:
+                return "DEPTH_APPROACH";
+
+            case READY:
+                return "READY";
+
+            case VISION_LOST:
+                return "VISION_LOST";
+
+            case DEPTH_LOST:
+                return "DEPTH_LOST";
+
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+
+    void publishState()
+    {
+        std_msgs::String msg;
+
+        msg.data =
+            stateToString(
+                state_
+            );
+
+        state_pub_.publish(
+            msg
+        );
+    }
+
+
+    /*
+     * 状态切换统一经过这个函数。
+     *
+     * 只有状态真正发生变化时，
+     * 才发布新的状态消息。
+     *
+     * 这样实验 logger 可以直接根据消息时间
+     * 获取每个 state 的进入时刻。
+     */
+    void setState(
+        ButtonControllerState new_state
+    )
+    {
+        if(state_ == new_state)
+        {
+            return;
+        }
+
+        const std::string old_state =
+            stateToString(
+                state_
+            );
+
+        const std::string next_state =
+            stateToString(
+                new_state
+            );
+
+        state_ = new_state;
+
+        publishState();
+
+        ROS_INFO(
+            "STATE TRANSITION: %s -> %s",
+            old_state.c_str(),
+            next_state.c_str()
+        );
+    }
+
+
+    /*
+     * ========================================
+     * General helper functions
      * ========================================
      */
 
@@ -510,7 +654,9 @@ private:
             >
             vision_timeout_
         )
+        {
             return false;
+        }
 
 
         if(
@@ -518,7 +664,9 @@ private:
             >
             vision_timeout_
         )
+        {
             return false;
+        }
 
 
         if(
@@ -526,7 +674,9 @@ private:
             >
             vision_timeout_
         )
+        {
             return false;
+        }
 
 
         if(
@@ -534,7 +684,9 @@ private:
             >
             vision_timeout_
         )
+        {
             return false;
+        }
 
 
         return true;
@@ -548,7 +700,11 @@ private:
 
 
         return
-            (ros::Time::now() - last_depth_time_).toSec()
+            (
+                ros::Time::now()
+                -
+                last_depth_time_
+            ).toSec()
             <=
             depth_timeout_;
     }
@@ -559,9 +715,13 @@ private:
         return
             target_valid_
             &&
-            target_type_ == "elevator_call_button"
+            target_type_
+                ==
+                "elevator_call_button"
             &&
-            target_confidence_ >= min_confidence_;
+            target_confidence_
+                >=
+                min_confidence_;
     }
 
 
@@ -574,7 +734,9 @@ private:
 
         cmd.angular.z = 0.0;
 
-        cmd_pub_.publish(cmd);
+        cmd_pub_.publish(
+            cmd
+        );
     }
 
 
@@ -590,7 +752,9 @@ private:
 
         cmd.angular.z = angular_z;
 
-        cmd_pub_.publish(cmd);
+        cmd_pub_.publish(
+            cmd
+        );
     }
 
 
@@ -606,8 +770,6 @@ private:
          * ====================================
          * 1. Vision stream safety
          * ====================================
-         *
-         * 注意：
          *
          * "视觉节点没有工作"
          *
@@ -625,7 +787,9 @@ private:
         {
             if(!has_seen_valid_target_)
             {
-                state_ = WAIT_TARGET;
+                setState(
+                    WAIT_TARGET
+                );
 
                 stopRobot();
 
@@ -636,7 +800,9 @@ private:
             }
             else
             {
-                state_ = VISION_LOST;
+                setState(
+                    VISION_LOST
+                );
 
                 stopRobot();
 
@@ -665,7 +831,9 @@ private:
              */
             if(!has_seen_valid_target_)
             {
-                state_ = SEARCH;
+                setState(
+                    SEARCH
+                );
 
 
                 publishMotion(
@@ -693,7 +861,9 @@ private:
              */
             else
             {
-                state_ = VISION_LOST;
+                setState(
+                    VISION_LOST
+                );
 
 
                 stopRobot();
@@ -722,8 +892,6 @@ private:
 
 
             /*
-             * 非常重要：
-             *
              * SEARCH过程中机器人可能旋转，
              * 深度相机可能看到其他墙面。
              *
@@ -760,7 +928,9 @@ private:
          */
 
         const double image_center =
-            image_width_ / 2.0;
+            image_width_
+            /
+            2.0;
 
 
         const double error_px =
@@ -773,17 +943,19 @@ private:
          * ====================================
          * 5. 偏差过大 -> ALIGN
          * ====================================
-         *
-         * 以下开始保持原有控制逻辑。
          */
 
         if(
-            std::fabs(error_px)
+            std::fabs(
+                error_px
+            )
             >
             realign_threshold_px_
         )
         {
-            state_ = ALIGN;
+            setState(
+                ALIGN
+            );
 
 
             const double angular =
@@ -826,7 +998,9 @@ private:
 
         if(!depth_ever_acquired_)
         {
-            state_ = FAR_APPROACH;
+            setState(
+                FAR_APPROACH
+            );
 
 
             const double angular =
@@ -870,7 +1044,9 @@ private:
 
         if(!depthFresh())
         {
-            state_ = DEPTH_LOST;
+            setState(
+                DEPTH_LOST
+            );
 
 
             stopRobot();
@@ -900,7 +1076,9 @@ private:
             stop_distance_
         )
         {
-            state_ = READY;
+            setState(
+                READY
+            );
 
 
             stopRobot();
@@ -923,13 +1101,19 @@ private:
          * ====================================
          */
 
-        state_ = DEPTH_APPROACH;
+        setState(
+            DEPTH_APPROACH
+        );
 
 
         double linear_speed;
 
 
-        if(front_distance_ > 1.0)
+        if(
+            front_distance_
+            >
+            1.0
+        )
         {
             linear_speed =
                 medium_speed_;
