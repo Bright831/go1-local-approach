@@ -814,6 +814,35 @@ private:
 
     void control()
     {
+
+        /*
+ * ====================================
+ * 0. READY is a terminal state
+ * ====================================
+ *
+ * 一旦达到 stop_distance 并进入 READY，
+ * 当前 trial 就已经完成。
+ *
+ * 后续 depth measurement 可能由于噪声从
+ * 0.500 m 抖动到 0.502 m、0.498 m 等。
+ *
+ * READY 后禁止重新进入 DEPTH_APPROACH，
+ * 否则机器人可能再次向前移动。
+ *
+ * READY 只会在 controller 重启后被清除。
+ */
+        if(state_ == READY)
+        {
+            stopRobot();
+
+            ROS_INFO_THROTTLE(
+                1.0,
+                "READY latched -> STOP | distance=%.3f m",
+                front_distance_
+            );
+
+            return;
+        }
         /*
          * ====================================
          * 1. Vision stream safety
