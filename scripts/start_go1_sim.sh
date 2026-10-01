@@ -12,7 +12,7 @@ ELEVATOR_PID=""
 
 cleanup() {
     echo
-    echo "[INFO] 正在关闭 Go1 仿真..."
+    echo "[INFO] Shutting down the Go1 simulation..."
 
     if [ -n "${ELEVATOR_PID}" ]; then
         kill "${ELEVATOR_PID}" 2>/dev/null || true
@@ -24,7 +24,7 @@ cleanup() {
         wait "${ROSLAUNCH_PID}" 2>/dev/null || true
     fi
 
-    echo "[INFO] 已结束。"
+    echo "[INFO] Simulation shutdown complete."
 }
 
 trap cleanup EXIT INT TERM
@@ -44,10 +44,10 @@ cd "$WORKSPACE"
 
 
 # ============================================================
-# 1. Start Gazebo + Go1
+# 1. Start Gazebo and Go1
 # ============================================================
 
-echo "[INFO] 正在启动 Gazebo 和 Go1..."
+echo "[INFO] Starting Gazebo and Go1..."
 
 roslaunch unitree_guide gazeboSim.launch gui:=true \
     >"$GAZEBO_LOG" 2>&1 &
@@ -56,10 +56,10 @@ ROSLAUNCH_PID=$!
 
 
 # ============================================================
-# 2. Wait for Go1 controller manager
+# 2. Wait for the Go1 controller manager
 # ============================================================
 
-echo "[INFO] 等待 Go1 控制器加载..."
+echo "[INFO] Waiting for the Go1 controller manager..."
 
 READY=0
 
@@ -78,9 +78,9 @@ done
 
 if [ "$READY" -ne 1 ]; then
 
-    echo "[ERROR] Gazebo / Go1 未在 60 秒内准备完成。"
+    echo "[ERROR] Gazebo / Go1 did not become ready within 60 seconds."
     echo
-    echo "[INFO] Gazebo 日志末尾："
+    echo "[INFO] Last lines of the Gazebo log:"
 
     tail -n 40 "$GAZEBO_LOG" 2>/dev/null || true
 
@@ -88,14 +88,14 @@ if [ "$READY" -ne 1 ]; then
 fi
 
 
-echo "[INFO] Go1 controller manager 已就绪。"
+echo "[INFO] Go1 controller manager is ready."
 
 
 # ============================================================
-# 3. Wait for Gazebo spawn service
+# 3. Wait for the Gazebo model-spawn service
 # ============================================================
 
-echo "[INFO] 等待 Gazebo spawn service..."
+echo "[INFO] Waiting for the Gazebo model-spawn service..."
 
 SPAWN_READY=0
 
@@ -114,20 +114,20 @@ done
 
 if [ "$SPAWN_READY" -ne 1 ]; then
 
-    echo "[ERROR] /gazebo/spawn_sdf_model 未准备完成。"
+    echo "[ERROR] /gazebo/spawn_sdf_model did not become ready."
 
     exit 1
 fi
 
 
-echo "[INFO] Gazebo spawn service 已就绪。"
+echo "[INFO] Gazebo model-spawn service is ready."
 
 
 # ============================================================
-# 4. Spawn simulated elevator
+# 4. Spawn the simulated elevator
 # ============================================================
 
-echo "[INFO] 正在生成模拟电梯..."
+echo "[INFO] Spawning the simulated elevator..."
 
 rm -f "$ELEVATOR_LOG"
 
@@ -138,10 +138,10 @@ ELEVATOR_PID=$!
 
 
 # ============================================================
-# 5. Verify elevator actually exists
+# 5. Verify that the elevator model exists in Gazebo
 # ============================================================
 
-echo "[INFO] 等待 sim_elevator 出现在 Gazebo..."
+echo "[INFO] Waiting for sim_elevator to appear in Gazebo..."
 
 ELEVATOR_READY=0
 
@@ -161,9 +161,9 @@ done
 if [ "$ELEVATOR_READY" -ne 1 ]; then
 
     echo
-    echo "[ERROR] sim_elevator 未成功生成。"
+    echo "[ERROR] sim_elevator was not spawned successfully."
     echo
-    echo "[INFO] Elevator launch 日志："
+    echo "[INFO] Elevator launch log:"
     echo "----------------------------------------"
 
     cat "$ELEVATOR_LOG" 2>/dev/null || true
@@ -174,11 +174,11 @@ if [ "$ELEVATOR_READY" -ne 1 ]; then
 fi
 
 
-echo "[INFO] sim_elevator 已成功生成。"
+echo "[INFO] sim_elevator was spawned successfully."
 
 
 # ============================================================
-# 6. Start Unitree junior_ctrl in FOREGROUND
+# 6. Start Unitree junior_ctrl in the foreground
 # ============================================================
 
 echo
@@ -190,9 +190,9 @@ echo "[INFO] Gazebo       : running"
 echo "[INFO] Go1          : running"
 echo "[INFO] sim_elevator : running"
 echo
-echo "[INFO] 当前终端属于 junior_ctrl。"
+echo "[INFO] This terminal is now attached to junior_ctrl."
 echo
-echo "完整 Demo 请按："
+echo "To prepare Go1 for the autonomous demo, enter:"
 echo
 echo "    2"
 echo "    5"
@@ -200,13 +200,17 @@ echo
 echo "[INFO] 2 = FixedStand"
 echo "[INFO] 5 = MOVE_BASE"
 echo
-echo "[INFO] 之后不要使用 WASD。"
+echo "[INFO] Do not use manual WASD control after entering MOVE_BASE."
 echo
-echo "[INFO] Terminal 2 再运行："
+echo "[INFO] In Terminal 2, run:"
 echo
-echo "    ~/start_go1_demo.sh"
+echo "    ~/catkin_ws/src/go1_local_approach/scripts/start_go1_demo.sh <trial_id>"
 echo
-echo "[INFO] Ctrl+C 关闭整个仿真。"
+echo "Example:"
+echo
+echo "    ~/catkin_ws/src/go1_local_approach/scripts/start_go1_demo.sh 901"
+echo
+echo "[INFO] Press Ctrl+C in this terminal to shut down the simulation."
 echo
 echo "============================================================"
 echo

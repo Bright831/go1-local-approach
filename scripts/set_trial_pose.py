@@ -35,9 +35,8 @@ class TrialPoseSetter:
             )
         )
 
-        # 这里使用你已经确认过的真实 Gazebo model name。
-        # 如果你的实际名称不是 go1_gazebo，
-        # 保留你刚刚已经修改正确的名称即可。
+        # Use the verified Gazebo model name for the Go1 robot.
+        # The current simulation model name is "go1_gazebo".
         self.robot_model_name = rospy.get_param(
             "~robot_model_name",
             "go1_gazebo"
@@ -62,9 +61,9 @@ class TrialPoseSetter:
         # ------------------------------------------------------------
         # Physical turning
         #
-        # 之前实测：
-        # 0.15 rad/s 可能只有身体扭转而不能正常迈步；
-        # 0.25 rad/s 能正常触发 Go1 转向步态。
+        # Empirical simulation observation:
+        # 0.15 rad/s may cause body twisting without reliable stepping,
+        # while 0.25 rad/s consistently triggers the Go1 turning gait.
         # ------------------------------------------------------------
 
         self.rotation_speed = abs(

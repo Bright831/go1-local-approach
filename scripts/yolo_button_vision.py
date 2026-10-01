@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import rospy
 import torch
+import os
 
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
@@ -25,9 +26,16 @@ class YoloButtonVision:
         # ROS parameters
         # ============================================================
 
+        default_model_path = os.path.join(
+            os.path.dirname(
+                os.path.dirname(__file__)
+            ),
+            "models/yolo/best.pt"
+        )
+
         self.model_path = rospy.get_param(
             "~model_path",
-            "/home/bright/go1_yolo_runs/button_yolo11n-2/weights/best.pt"
+            default_model_path
         )
 
         self.image_topic = rospy.get_param(

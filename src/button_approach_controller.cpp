@@ -38,14 +38,14 @@ public:
         vision_received_ = false;
 
         /*
-         * 从程序启动到现在，
-         * 是否至少成功识别过一次有效按钮。
+         * Tracks whether at least one valid button target has been detected
+         * since the controller started.
          *
          * false:
-         *   允许 SEARCH
+         *   SEARCH is allowed.
          *
          * true:
-         *   后续视觉丢失只 STOP，不自动 SEARCH
+         *   Subsequent vision loss causes STOP only; SEARCH is not restarted automatically.
          */
         has_seen_valid_target_ = false;
 
@@ -57,17 +57,17 @@ public:
         depth_ever_acquired_ = false;
 
         /*
-         * 是否已经完成初始视觉对准，
-         * 并正式开始过 forward approach。
+         * Tracks whether the initial visual alignment has been completed
+         * and forward approach has formally started.
          *
          * false:
-         *   WAIT_TARGET / SEARCH / 初始 ALIGN
-         *   此时 depth 不能建立正式 tracking。
+         *   WAIT_TARGET / SEARCH / initial ALIGN.
+         *   Depth measurements must not establish formal tracking at this stage.
          *
          * true:
-         *   已经进入过 FAR_APPROACH。
-         *   此后即使视觉暂时进入 VISION_LOST，
-         *   合法 depth 仍允许持续更新。
+         *   FAR_APPROACH has already been entered.
+         *   After this point, even if vision temporarily enters VISION_LOST,
+         *   valid depth measurements are still allowed to update.
          */
         approach_started_ = false;
 
@@ -96,8 +96,8 @@ public:
         );
 
         /*
-         * 偏差超过这个值时，
-         * 停止前进并重新原地 ALIGN。
+         * If the horizontal pixel error exceeds this threshold,
+         * forward motion stops and the robot realigns in place.
          */
         pnh_.param<double>(
             "realign_threshold_px",
@@ -198,9 +198,9 @@ public:
         );
 
         /*
-         * 实际运行由 YAML 提供。
+         * The runtime value is provided by the YAML configuration.
          *
-         * 当前已经实测成功：
+         * The following setting has been validated in simulation:
          *
          * yaw_sign = +1.0
          */
@@ -380,10 +380,10 @@ private:
     bool depth_ever_acquired_;
 
     /*
-     * 历史阶段 flag。
+     * Historical phase flag.
      *
-     * 一旦真正进入过 FAR_APPROACH，
-     * 后续不因为瞬时 state 改变而清除。
+     * Once FAR_APPROACH has genuinely been entered,
+     * this flag is not cleared by temporary state transitions.
      */
     bool approach_started_;
 
@@ -494,38 +494,38 @@ private:
     )
     {
         /*
-         * /front_distance 是 depth node 输出的
-         * 标量距离。
+         * /front_distance is a scalar range measurement produced by
+         * the depth node.
          *
-         * 它不是 base / odom 中的三维位置，
-         * 因此不与这些 frame 的位置坐标直接混算。
+         * It is not a 3D position expressed in the base or odom frame,
+         * so it must not be directly combined with positional coordinates from those frames.
          *
          *
-         * 初始：
+         * Initially:
          *
          * WAIT_TARGET
          * SEARCH
          * ALIGN
          *
-         * 此时机器人尚未完成视觉对准。
-         * depth camera 可能看到墙面或其他表面，
-         * 所以这些 depth 不能建立正式 tracking。
+         * At this stage, the robot has not completed visual alignment.
+         * The depth camera may observe a wall or another unrelated surface,
+         * so these measurements must not establish formal depth tracking.
          *
          *
-         * 一旦：
+         * Once:
          *
          * approach_started_ == true
          *
-         * 意味着 controller 已经完成初始对准，
-         * 并进入过 FAR_APPROACH。
+         * the controller has completed the initial alignment
+         * and has entered FAR_APPROACH.
          *
-         * 此后即使当前瞬时状态是 VISION_LOST，
-         * 合法 depth 仍继续更新。
+         * After this point, even if the current state is temporarily VISION_LOST,
+         * valid depth measurements continue to update.
          */
 
 
         /*
-         * 非法 depth 才 return。
+         * Return only when the depth measurement is invalid.
          */
         if(
             !std::isfinite(msg->data)
@@ -540,23 +540,23 @@ private:
 
 
         /*
-         * 保留最新合法数值。
+         * Store the latest valid depth value.
          */
         front_distance_ =
             msg->data;
 
 
         /*
-         * 只有正式开始 approach 后，
-         * depth 才参与 controller tracking。
+         * Depth participates in controller tracking only after
+         * the approach has formally started.
          *
-         * 注意：
+         * Important:
          *
-         * 这里不再依赖当前 state_。
+         * This logic no longer depends on the current state_.
          *
-         * 所以即使当前处于 VISION_LOST，
-         * 只要 approach 已经开始，
-         * depth 仍然可以继续更新。
+         * Therefore, even while the controller is in VISION_LOST,
+         * as long as the approach has already started,
+         * depth measurements may continue to update.
          */
         if(approach_started_)
         {
@@ -820,16 +820,16 @@ private:
  * 0. READY is a terminal state
  * ====================================
  *
- * 一旦达到 stop_distance 并进入 READY，
- * 当前 trial 就已经完成。
+ * Once stop_distance is reached and the controller enters READY,
+ * the current trial is considered complete.
  *
- * 后续 depth measurement 可能由于噪声从
- * 0.500 m 抖动到 0.502 m、0.498 m 等。
+ * Subsequent depth measurements may fluctuate because of noise, for example
+ * from 0.500 m to 0.502 m or 0.498 m.
  *
- * READY 后禁止重新进入 DEPTH_APPROACH，
- * 否则机器人可能再次向前移动。
+ * After entering READY, the controller must not return to DEPTH_APPROACH,
+ * otherwise the robot could resume forward motion.
  *
- * READY 只会在 controller 重启后被清除。
+ * READY is cleared only when the controller is restarted.
  */
         if(state_ == READY)
         {
@@ -894,8 +894,8 @@ private:
         if(!validButtonTarget())
         {
             /*
-             * 启动后从未找到过目标：
-             * 允许 SEARCH。
+             * No valid target has been detected since startup:
+             * SEARCH is allowed.。
              */
             if(!has_seen_valid_target_)
             {
@@ -918,10 +918,10 @@ private:
             }
 
             /*
-             * 已经获取过目标后丢失：
-             * STOP。
+             * The target was previously acquired but is now lost:
+             * STOP.
              *
-             * 不重新 SEARCH。
+             * Do not restart SEARCH.
              */
             else
             {
@@ -957,10 +957,10 @@ private:
 
 
             /*
-             * SEARCH 阶段 depth 可能属于其他表面。
+             * During SEARCH, depth measurements may correspond to unrelated surfaces.
              *
-             * 第一次真正获取按钮时，
-             * 清空所有 depth tracking 历史。
+             * When the button is acquired for the first time,
+             * clear all previous depth-tracking history.
              */
             depth_received_ =
                 false;
@@ -987,9 +987,9 @@ private:
          * 4. Pixel error
          * ====================================
          *
-         * 这里只处理图像像素坐标。
+         * Only image pixel coordinates are handled here.
          *
-         * 不与 base / odom / camera 三维位置混算。
+         * They are not directly combined with 3D positions from base, odom, or camera frames.
          */
 
         const double image_center =
@@ -1064,15 +1064,15 @@ private:
         if(!depth_ever_acquired_)
         {
             /*
-             * 到达这里说明：
+             * Reaching this point means:
              *
              * vision fresh
              * target valid
              * error <= realign_threshold_px
              *
-             * 因此初始视觉对准已经达到要求。
+             * Therefore, the initial visual alignment requirement has been satisfied.
              *
-             * 从现在开始，允许 depth 正式参与 tracking。
+             * From this point onward, depth is allowed to participate in formal tracking.
              */
             if(!approach_started_)
             {

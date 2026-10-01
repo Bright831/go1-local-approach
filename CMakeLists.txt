@@ -210,68 +210,11 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable(cmd_vel_test src/cmd_vel_test.cpp)
+########################################
+## Project Executables
+########################################
 
-target_link_libraries(cmd_vel_test
-  ${catkin_LIBRARIES}
-)
-
-add_executable(approach_controller 
-  src/approach_controller.cpp
-)
-
-target_link_libraries(approach_controller
-  ${catkin_LIBRARIES}
-)
-
-add_executable(goal_checker
-src/goal_checker.cpp)
-
-
-target_link_libraries(goal_checker
-${catkin_LIBRARIES}
-)
-
-add_executable(fake_vision
-src/fake_vision.cpp)
-
-
-target_link_libraries(fake_vision
-${catkin_LIBRARIES}
-)
-
-add_executable(vision_to_goal
-src/vision_to_goal.cpp)
-
-
-target_link_libraries(vision_to_goal
-${catkin_LIBRARIES}
-)
-
-add_executable(yaw_test
-src/yaw_test.cpp)
-
-
-target_link_libraries(yaw_test
-${catkin_LIBRARIES}
-)
-
-add_executable(yaw_error_test
-src/yaw_error_test.cpp)
-
-
-target_link_libraries(yaw_error_test
-${catkin_LIBRARIES}
-)
-
-add_executable(task_manager
-src/task_manager.cpp)
-
-
-target_link_libraries(task_manager
-${catkin_LIBRARIES}
-)
-
+# Depth-based distance estimation from the front depth camera.
 add_executable(
   depth_distance_node
   src/depth_distance_node.cpp
@@ -282,6 +225,8 @@ target_link_libraries(
   ${catkin_LIBRARIES}
 )
 
+# Main closed-loop controller for elevator-button search,
+# alignment, visual approach, depth approach, and final stop.
 add_executable(
   button_approach_controller
   src/button_approach_controller.cpp
@@ -292,6 +237,8 @@ target_link_libraries(
   ${catkin_LIBRARIES}
 )
 
+# Synthetic button-vision source used for controller testing
+# without requiring the YOLO perception pipeline.
 add_executable(
   fake_button_vision
   src/fake_button_vision.cpp

@@ -27,7 +27,7 @@ public:
 
 
         /*
-         * 订阅 Go1 的 odom
+         * Subscribe to the Go1 odometry.
          */
         odom_sub_ =
             nh_.subscribe(
@@ -39,7 +39,7 @@ public:
 
 
         /*
-         * 模拟视觉输出
+         * Publish simulated vision outputs.
          */
         valid_pub_ =
             nh_.advertise<std_msgs::Bool>(
@@ -175,7 +175,7 @@ private:
     {
         /*
          * ==============================
-         * 可以运行时修改的模拟参数
+         * Simulation parameters that can be modified at runtime.
          * ==============================
          */
 
@@ -243,15 +243,15 @@ private:
 
         /*
          * =========================================
-         * 坐标系原则
+         * Coordinate-frame convention.
          *
          * robot_x/y:
          * odom frame
          *
          * target_world_x/y:
-         * 同样定义在 odom frame
+         * The simulated button position is also defined in the odom frame.
          *
-         * 所以这里可以做位置差。
+         * Therefore, the relative position can be computed directly here.
          * =========================================
          */
 
@@ -271,7 +271,7 @@ private:
 
 
         /*
-         * 按钮在 odom 中的绝对方向
+         * Absolute direction from the robot to the button in the odom frame.
          */
         const double target_world_angle =
             std::atan2(
@@ -281,7 +281,7 @@ private:
 
 
         /*
-         * 按钮相对 Go1 正前方的方向
+         * Direction of the button relative to the Go1 forward axis.
          */
         const double relative_angle =
             normalizeAngle(
@@ -293,19 +293,19 @@ private:
 
         /*
          * =========================================
-         * 相机模型
+         * Camera model.
          *
-         * 图像：
+         * Image convention:
          *
          * 0 -------- 320 -------- 640
-         * 左          中            右
+         * Left        Centre        Right
          *
          * ROS：
          *
          * relative_angle > 0
-         * 表示目标在机器人左边
+         * A negative horizontal angle means the target is to the robot's left.
          *
-         * 所以图像 x 应该小于 320。
+         * Therefore, the corresponding image x coordinate should be less than 320.
          * =========================================
          */
 
@@ -342,7 +342,7 @@ private:
 
 
         /*
-         * 判断目标是否还在相机视野内
+         * Check whether the target remains inside the camera field of view.
          */
         bool visible =
             std::fabs(relative_angle)
@@ -357,7 +357,7 @@ private:
 
 
         /*
-         * 防止像素坐标越界
+         * Clamp the pixel coordinate to the valid image range.
          */
         if(center_x < 0.0)
         {
@@ -373,7 +373,7 @@ private:
 
 
         /*
-         * 发布 ROS 消息
+         * Publish ROS messages.
          */
 
         std_msgs::Bool valid_msg;
